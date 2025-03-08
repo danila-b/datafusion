@@ -25,27 +25,56 @@ permissions:
   contents: read
   pull-requests: write
   actions: write
+  checks: write
 
 jobs:
 
   run_extended_tests:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, 'Run extended tests') }}
-    outputs:
-      # Custom ref is required since issue_comment event points to the default branch rather than pull request branch
-      ref: ${{ format('refs/pull/{0}/head', github.event.issue.number) }}
     steps:
-
       - name: Dispatch extended tests for a PR branch with comment
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            // Get PR details to fetch the branch name
+            const { data: pullRequest } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.issue.number
+            });
+            
+            // Extract the branch name
+            const branchName = pullRequest.head.ref;
+            const headSha = pullRequest.head.sha;
+            const workflowRunsUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions?query=workflow%3A%22Datafusion+extended+tests%22+branch%3A${branchName}`;
+            
+            // Create a check run that links to the Actions tab so the run will be visible in GitHub UI
+            const check = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Extended Tests',
+              head_sha: headSha,
+              status: 'in_progress',
+              output: {
+                title: 'Extended Tests Running',
+                summary: `Extended tests have been triggered for this PR.\n\n[View workflow runs](${workflowRunsUrl})`
+              },
+              details_url: workflowRunsUrl
+            });
+
+            // Dispatch the workflow with the PR branch name
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'extended.yml',
-              ref: 'refs/pull/${context.payload.issue.number}/head',
+              ref: branchName,
+              inputs: {
+                pr_number: context.payload.issue.number.toString(),
+                check_run_id: check.data.id.toString(),
+                pr_head_sha: headSha
+              }
             });
 
       - name: Add reaction to comment 
