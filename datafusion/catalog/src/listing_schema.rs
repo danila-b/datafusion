@@ -238,6 +238,7 @@ mod tests {
 
     #[test]
     fn table_path_ends_with_slash_when_is_dir() {
+        panic!("Extended test failed");
         let table_path = TablePath {
             path: Path::new("/file"),
             is_dir: true,
